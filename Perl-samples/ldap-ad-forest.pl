@@ -41,7 +41,108 @@ my $config = {
 #
 # Standard script start-up processing
 #
-    process_config_options();
+
+
+##############################################################################
+# Usage         :   process_config_options()
+# Purpose       :   Processes command line options and reads in config file
+# Returns       :   nothing, modifies global $config variable
+# Parameters    :   none
+sub process_config_options {
+    # Create a variable to hold out options in
+    my $options;
+
+    # Get the passed parameters
+    my $options_okay = GetOptions (
+        'server=s' 	=> \$config->{'server'},
+        'username=s'    => \$config->{'username'},
+        'password=s'    => \$config->{'password'},
+    );
+
+    # If we got some option we didn't expect, print a message and abort
+    if ( !$options_okay ) {
+        print "ERROR: ", "An invalid option was passed on the command line.\n";
+        #print "ERROR: ", "Try '$basename --help' for help.\n";
+        exit 1;
+    }
+
+    # update the config data with the options passed on the command line
+    foreach my $opt_key (keys %{ $options }) {
+        # Make sure we didn't somehow end up with a null value
+        if (defined $options->{$opt_key}) {
+            $config->{$opt_key} = $options->{$opt_key};
+        }
+    }
+
+    return;
+}
+
+
+sub LDAPerror {
+	my $unknown = "not known";
+	my ($from, $mesg) = @_;
+
+	print "Return Code: $mesg->code\n";
+	print "\tMessage: $mesg->error_name\n";
+	print "\t       : $mesg->error_text\n";
+	print "MessageID  : $mesg->mesg_id\n";
+
+	my $dn = $mesg->dn;
+	if (!$dn) { $dn = $unknown; }
+	print "\tDN: $dn\n";
+}
+
+
+sub DisplayResults {
+	my ($results) = @_;
+	my %records;
+
+	my $href = $results->as_struct;
+	my @arrayofDNs = keys %$href;
+
+	foreach (@arrayofDNs) {
+		my %record;
+		my $key = $_;
+
+		print "\n*  ", $key, "\n";
+		my $valref = $$href{$_};
+		my @arrayofAttrs = sort keys %$valref;
+		my $attrName;
+
+		foreach $attrName (@arrayofAttrs) {
+			next if ($attrName =~ /;binary$/ );
+			my $attrVal = @$valref{$attrName};
+			print "   $attrName: @$attrVal \n";
+
+			if (scalar @$attrVal > 1) {
+			    @{$record{$attrName}} = @$attrVal;
+			} else {
+			    $record{$attrName} = "@$attrVal";
+			}
+		}
+
+		$records{$key} = \%record;
+	}
+	print "\n[-------------------------------------------------]\n";
+	return %records;
+}
+
+
+sub LDAPsearch {
+	my ($ldap, $searchString, $attrs, $base) = @_;
+	if (!$base) { $base = "DC=ad,DC=lab,DC=local"; }
+	if (!$attrs) { $attrs = [ 'cn' ]; }
+
+	my $sr = $ldap->search(
+		base	=> "$base",
+ 		scope	=> "sub",
+		filter	=> "$searchString",
+		attrs	=> $attrs,
+	);
+
+	return $sr;
+}
+
 
 
 ##############################################################################
@@ -49,6 +150,11 @@ my $config = {
 # MAIN:
 #   Put all new code here
 #{
+process_config_options();
+if (!defined($config->{'username'})) {
+    print "ERROR: ", "UPN (username) is required.\n";
+    exit 1;
+}
 
 # Parse the UPN for the domain (AD will register all DCs at the zone level)
 my ($username, $ad_domain) = split('\@', $config->{'username'});
@@ -198,104 +304,6 @@ exit 0;
 
 
 
-##############################################################################
-# Usage         :   process_config_options()
-# Purpose       :   Processes command line options and reads in config file
-# Returns       :   nothing, modifies global $config variable
-# Parameters    :   none
-sub process_config_options {
-    # Create a variable to hold out options in
-    my $options;
-
-    # Get the passed parameters
-    my $options_okay = GetOptions (
-        'server=s' 		=> \$config->{'server'},
-        'username=s'    => \$config->{'username'},
-        'password=s'    => \$config->{'password'},
-    );
-
-    # If we got some option we didn't expect, print a message and abort
-    if ( !$options_okay ) {
-        print "ERROR", "An invalid option was passed on the command line.\n";
-        print "NOTICE", "Try '$basename --help' for help.\n";
-        exit 1;
-    }
-
-    # update the config data with the options passed on the command line
-    foreach my $opt_key (keys %{ $options }) {
-        # Make sure we didn't somehow end up with a null value
-        if (defined $options->{$opt_key}) {
-            $config->{$opt_key} = $options->{$opt_key};
-        }
-    }
-
-    return;
-}
-
-
-
-sub LDAPerror {
-	my $unknown = "not known";
-	my ($from, $mesg) = @_;
-
-	print "Return Code: $mesg->code\n";
-	print "\tMessage: $mesg->error_name\n";
-	print "\t       : $mesg->error_text\n";
-	print "MessageID  : $mesg->mesg_id\n";
-
-	my $dn = $mesg->dn;
-	if (!$dn) { $dn = $unknown; }
-	print "\tDN: $dn\n";
-}
-
-sub DisplayResults {
-	my ($results) = @_;
-	my %records;
-
-	my $href = $results->as_struct;
-	my @arrayofDNs = keys %$href;
-
-	foreach (@arrayofDNs) {
-		my %record;
-		my $key = $_;
-
-		print "\n*  ", $key, "\n";
-		my $valref = $$href{$_};
-		my @arrayofAttrs = sort keys %$valref;
-		my $attrName;
-
-		foreach $attrName (@arrayofAttrs) {
-			next if ($attrName =~ /;binary$/ );
-			my $attrVal = @$valref{$attrName};
-			print "   $attrName: @$attrVal \n";
-
-			if (scalar @$attrVal > 1) {
-			    @{$record{$attrName}} = @$attrVal;
-			} else {
-			    $record{$attrName} = "@$attrVal";
-			}
-		}
-
-		$records{$key} = \%record;
-	}
-	print "\n[-------------------------------------------------]\n";
-	return %records;
-}
-
-sub LDAPsearch {
-	my ($ldap, $searchString, $attrs, $base) = @_;
-	if (!$base) { $base = "DC=ad,DC=lab,DC=local"; }
-	if (!$attrs) { $attrs = [ 'cn' ]; }
-
-	my $sr = $ldap->search(
-		base	=> "$base",
- 		scope	=> "sub",
-		filter	=> "$searchString",
-		attrs	=> $attrs,
-	);
-
-	return $sr;
-}
 
 
 ##############################################################################
